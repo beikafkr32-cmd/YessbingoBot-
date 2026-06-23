@@ -16,7 +16,21 @@ WINNER_PERCENTAGE: float = float(os.getenv("WINNER_PERCENTAGE", "80")) / 100
 HOUSE_PERCENTAGE: float = float(os.getenv("HOUSE_PERCENTAGE", "20")) / 100
 FIRST_WINNER_SHARE: float = float(os.getenv("FIRST_WINNER_SHARE", "0.667"))
 DATABASE_FILE: str = os.getenv("DATABASE_FILE", "bingo.db")
-WEB_APP_URL: str = os.getenv("WEB_APP_URL", "")
+def _auto_web_app_url() -> str:
+    explicit = os.getenv("WEB_APP_URL", "")
+    if explicit:
+        return explicit.rstrip("/")
+    # Replit exposes the public HTTPS domain(s) as a comma-separated list
+    domains = os.getenv("REPLIT_DOMAINS", "")
+    if domains:
+        primary = domains.split(",")[0].strip()
+        return f"https://{primary}/web_app/index.html"
+    dev_domain = os.getenv("REPLIT_DEV_DOMAIN", "")
+    if dev_domain:
+        return f"https://{dev_domain}/web_app/index.html"
+    return ""
+
+WEB_APP_URL: str = _auto_web_app_url()
 
 COINS_PER_REFERRAL: int = 1
 COINS_TO_ETB_RATE: int = 10

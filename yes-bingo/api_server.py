@@ -1,182 +1,251 @@
 """
-Lightweight HTTP server for the Mini App web endpoints.
-Runs alongside the Telegram bot in the same process.
+Async HTTP + WebSocket server for the YES BINGO Mini App.
+Runs inside the same asyncio loop as the Telegram bot (started in post_init).
 """
 import json
 import logging
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, parse_qs
-import threading
+import os
+from pathlib import Path
+from aiohttp import web, WSMsgType
 import database as db
 import config
+from broadcaster import broadcaster
 
 logger = logging.getLogger(__name__)
 
-
-def json_response(handler: BaseHTTPRequestHandler, data: dict, status: int = 200) -> None:
-    body = json.dumps(data).encode()
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json")
-    handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.end_headers()
-    handler.wfile.write(body)
+WEBAPP_DIR = Path(__file__).parent / "web_app"
 
 
-class MiniAppHandler(BaseHTTPRequestHandler):
+# ── helpers ─────────────────────────────────────────────────────────────────
 
-    def log_message(self, format: str, *args) -> None:
-        logger.debug(f"HTTP {format % args}")
+def _json(data: dict, status: int = 200) -> web.Response:
+    return web.Response(
+        text=json.dumps(data),
+        content_type="application/json",
+        status=status,
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
-    def do_OPTIONS(self) -> None:
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-User-Id")
-        self.end_headers()
 
-    def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+def _cors(request: web.Request) -> web.Response:
+    return web.Response(
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, X-User-Id",
+        }
+    )
 
-        def qp(key: str) -> str | None:
-            vals = qs.get(key)
-            return vals[0] if vals else None
 
-        path = parsed.path
+# ── static Mini App files ────────────────────────────────────────────────────
 
-        if path == "/api/game/state":
-            game_id = qp("game_id")
-            user_id = qp("user_id")
-            if not game_id:
-                json_response(self, {"error": "Missing game_id"}, 400)
-                return
-            game = db.get_game(game_id)
-            if not game:
-                json_response(self, {"error": "Game not found"}, 404)
-                return
-            player = db.get_player_in_game(game_id, int(user_id)) if user_id else None
-            extra: dict = {}
-            if game.get("winner_id"):
-                w = db.get_user(game["winner_id"])
-                if w:
-                    extra["winner_name"] = w["first_name"]
-                if player and player.get("is_winner"):
-                    # compute prize
-                    prize = game["total_pot"] * config.WINNER_PERCENTAGE * config.FIRST_WINNER_SHARE
-                    extra["winner_amount"] = round(prize, 2)
-                    extra["winner_board"] = player["board_numbers"][0] if player["board_numbers"] else "-"
-            json_response(self, {"game": game, "player": player, **extra})
+async def serve_index(request: web.Request) -> web.FileResponse:
+    return web.FileResponse(WEBAPP_DIR / "index.html")
 
-        elif path == "/api/leaderboard":
-            players = db.get_leaderboard(10)
-            json_response(self, {"players": players})
 
-        elif path == "/api/history":
-            user_id = qp("user_id")
-            if not user_id:
-                json_response(self, {"transactions": []})
-                return
-            txs = db.get_user_transactions(int(user_id), 20)
-            json_response(self, {"transactions": txs})
+async def serve_static(request: web.Request) -> web.FileResponse:
+    filename = request.match_info["filename"]
+    filepath = WEBAPP_DIR / filename
+    if not filepath.exists() or not filepath.is_file():
+        raise web.HTTPNotFound()
+    return web.FileResponse(filepath)
 
-        elif path == "/api/profile":
-            user_id = qp("user_id")
-            if not user_id:
-                json_response(self, {"error": "Missing user_id"}, 400)
-                return
-            user = db.get_user(int(user_id))
-            if not user:
-                json_response(self, {"error": "User not found"}, 404)
-                return
-            json_response(self, {"user": user})
 
-        elif path == "/api/health":
-            json_response(self, {"status": "ok"})
+# ── REST endpoints ───────────────────────────────────────────────────────────
 
-        else:
-            json_response(self, {"error": "Not found"}, 404)
+async def api_health(request: web.Request) -> web.Response:
+    return _json({"status": "ok"})
 
-    def do_POST(self) -> None:
-        parsed = urlparse(self.path)
-        path = parsed.path
 
-        length = int(self.headers.get("Content-Length", 0))
-        body: dict = {}
-        if length:
-            try:
-                body = json.loads(self.rfile.read(length))
-            except Exception:
-                json_response(self, {"error": "Invalid JSON"}, 400)
-                return
+async def api_game_state(request: web.Request) -> web.Response:
+    game_id = request.rel_url.query.get("game_id")
+    user_id_str = request.rel_url.query.get("user_id")
+    if not game_id:
+        return _json({"error": "missing game_id"}, 400)
 
-        if path == "/api/game/claim-bingo":
-            game_id = body.get("game_id")
-            user_id = body.get("user_id")
-            if not game_id or not user_id:
-                json_response(self, {"error": "Missing fields"}, 400)
-                return
+    game = db.get_game(game_id)
+    if not game:
+        return _json({"error": "game not found"}, 404)
 
-            game = db.get_game(game_id)
-            if not game or game["status"] != "active":
-                json_response(self, {"success": False, "message": "Game not active"})
-                return
-
-            player = db.get_player_in_game(game_id, int(user_id))
-            if not player:
-                json_response(self, {"success": False, "message": "Not in game"})
-                return
-            if player["is_eliminated"]:
-                json_response(self, {"success": False, "eliminated": True})
-                return
-
-            from utils import check_bingo
-            called = game["called_numbers"]
-            boards = [player["main_board"]] + player["extra_boards"]
-            has_bingo = False
-            for flat in boards:
-                board_2d = [[flat[c * 5 + r] for r in range(5)] for c in range(5)]
-                if check_bingo(board_2d, called):
-                    has_bingo = True
-                    break
-
-            if not has_bingo:
-                db.update_player(game_id, int(user_id), is_eliminated=1)
-                json_response(self, {"success": False, "eliminated": True})
-                return
-
+    player = db.get_player_in_game(game_id, int(user_id_str)) if user_id_str else None
+    extra: dict = {}
+    if game.get("winner_id"):
+        w = db.get_user(game["winner_id"])
+        if w:
+            extra["winner_name"] = w["first_name"]
+        if player and player.get("is_winner"):
             prize = game["total_pot"] * config.WINNER_PERCENTAGE * config.FIRST_WINNER_SHARE
-            db.update_game(game_id, status="finished", winner_id=int(user_id))
-            db.update_player(game_id, int(user_id), is_winner=1)
-            db.update_balance(int(user_id), prize)
-            db.create_transaction(int(user_id), prize, "win", description=f"Bingo win in {game_id}")
-
-            conn = db.get_connection()
-            try:
-                with conn:
-                    conn.execute(
-                        "UPDATE users SET total_wins = total_wins + 1, win_streak = win_streak + 1 WHERE telegram_id = ?",
-                        (int(user_id),)
-                    )
-            finally:
-                conn.close()
-
-            user = db.get_user(int(user_id))
-            board_number = player["board_numbers"][0] if player["board_numbers"] else "-"
-            json_response(self, {
-                "success": True,
-                "winner_name": user["first_name"] if user else "Player",
-                "board_number": board_number,
-                "amount": round(prize, 2),
-            })
-
-        else:
-            json_response(self, {"error": "Not found"}, 404)
+            extra["winner_amount"] = round(prize, 2)
+            extra["winner_board"] = player["board_numbers"][0] if player.get("board_numbers") else "-"
+    return _json({"game": game, "player": player, **extra})
 
 
-def start_api_server(port: int = 8082) -> threading.Thread:
-    server = HTTPServer(("0.0.0.0", port), MiniAppHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    logger.info(f"Mini App API server running on port {port}")
-    return thread
+async def api_leaderboard(request: web.Request) -> web.Response:
+    players = db.get_leaderboard(10)
+    return _json({"players": players})
+
+
+async def api_history(request: web.Request) -> web.Response:
+    user_id_str = request.rel_url.query.get("user_id")
+    if not user_id_str:
+        return _json({"transactions": []})
+    txs = db.get_user_transactions(int(user_id_str), 20)
+    return _json({"transactions": txs})
+
+
+async def api_profile(request: web.Request) -> web.Response:
+    user_id_str = request.rel_url.query.get("user_id")
+    if not user_id_str:
+        return _json({"error": "missing user_id"}, 400)
+    user = db.get_user(int(user_id_str))
+    if not user:
+        return _json({"error": "user not found"}, 404)
+    return _json({"user": user})
+
+
+async def api_claim_bingo(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+    except Exception:
+        return _json({"error": "invalid json"}, 400)
+
+    game_id = body.get("game_id")
+    user_id_str = body.get("user_id")
+    if not game_id or not user_id_str:
+        return _json({"error": "missing fields"}, 400)
+
+    user_id = int(user_id_str)
+    game = db.get_game(game_id)
+    if not game or game["status"] != "active":
+        return _json({"success": False, "message": "Game not active"})
+
+    player = db.get_player_in_game(game_id, user_id)
+    if not player:
+        return _json({"success": False, "message": "Not in game"})
+    if player["is_eliminated"]:
+        return _json({"success": False, "eliminated": True})
+
+    from utils import check_bingo
+    called = game["called_numbers"]
+    boards = [player["main_board"]] + player["extra_boards"]
+    has_bingo = False
+    for flat in boards:
+        board_2d = [[flat[c * 5 + r] for r in range(5)] for c in range(5)]
+        if check_bingo(board_2d, called):
+            has_bingo = True
+            break
+
+    if not has_bingo:
+        db.update_player(game_id, user_id, is_eliminated=1)
+        await broadcaster.broadcast(game_id, {
+            "type": "player_eliminated",
+            "user_id": user_id,
+        })
+        return _json({"success": False, "eliminated": True})
+
+    prize = game["total_pot"] * config.WINNER_PERCENTAGE * config.FIRST_WINNER_SHARE
+    db.update_game(game_id, status="finished", winner_id=user_id)
+    db.update_player(game_id, user_id, is_winner=1)
+    db.update_balance(user_id, prize)
+    db.create_transaction(user_id, prize, "win", description=f"Bingo win in {game_id}")
+
+    conn = db.get_connection()
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE users SET total_wins = total_wins + 1, win_streak = win_streak + 1 "
+                "WHERE telegram_id = ?", (user_id,)
+            )
+    finally:
+        conn.close()
+
+    user = db.get_user(user_id)
+    board_number = player["board_numbers"][0] if player.get("board_numbers") else "-"
+
+    await broadcaster.broadcast(game_id, {
+        "type": "game_end",
+        "winner_id": user_id,
+        "winner_name": user["first_name"] if user else "Player",
+        "board_number": board_number,
+        "amount": round(prize, 2),
+    })
+
+    return _json({
+        "success": True,
+        "winner_name": user["first_name"] if user else "Player",
+        "board_number": board_number,
+        "amount": round(prize, 2),
+    })
+
+
+# ── WebSocket handler ────────────────────────────────────────────────────────
+
+async def ws_handler(request: web.Request) -> web.WebSocketResponse:
+    game_id = request.rel_url.query.get("game_id", "")
+    user_id_str = request.rel_url.query.get("user_id", "")
+    user_id = int(user_id_str) if user_id_str.isdigit() else 0
+
+    ws = web.WebSocketResponse(heartbeat=20)
+    await ws.prepare(request)
+    ws["user_id"] = user_id
+
+    await broadcaster.join(game_id, ws)
+    logger.info(f"WS connected game={game_id} user={user_id}")
+
+    # Send current game state immediately on connect
+    game = db.get_game(game_id)
+    if game:
+        player = db.get_player_in_game(game_id, user_id) if user_id else None
+        await ws.send_str(json.dumps({
+            "type": "init",
+            "game": game,
+            "player": player,
+        }))
+
+    try:
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                try:
+                    data = json.loads(msg.data)
+                    msg_type = data.get("type")
+                    if msg_type == "ping":
+                        await ws.send_str(json.dumps({"type": "pong"}))
+                except Exception:
+                    pass
+            elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE):
+                break
+    finally:
+        await broadcaster.leave(game_id, ws)
+        logger.info(f"WS disconnected game={game_id} user={user_id}")
+
+    return ws
+
+
+# ── app factory ──────────────────────────────────────────────────────────────
+
+def create_app() -> web.Application:
+    app = web.Application()
+    app.router.add_get("/", serve_index)
+    app.router.add_get("/web_app/", serve_index)
+    app.router.add_get("/web_app/index.html", serve_index)
+    app.router.add_get("/web_app/{filename}", serve_static)
+    app.router.add_get("/api/health", api_health)
+    app.router.add_get("/api/game/state", api_game_state)
+    app.router.add_get("/api/leaderboard", api_leaderboard)
+    app.router.add_get("/api/history", api_history)
+    app.router.add_get("/api/profile", api_profile)
+    app.router.add_post("/api/game/claim-bingo", api_claim_bingo)
+    app.router.add_get("/ws", ws_handler)
+    app.router.add_route("OPTIONS", "/{path_info:.*}", lambda r: _cors(r))
+    return app
+
+
+async def start_server(port: int) -> tuple:
+    """Start aiohttp server. Returns (runner, site) for cleanup."""
+    app = create_app()
+    runner = web.AppRunner(app, access_log=None)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Mini App server running on port {port}")
+    return runner, site
