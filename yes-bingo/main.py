@@ -5,6 +5,7 @@ from datetime import time as dt_time
 from telegram.ext import Application, ApplicationBuilder, CallbackQueryHandler
 import database as db
 import config
+import api_server as api_srv
 from handlers.navigation import get_navigation_handlers
 from handlers.deposit import get_deposit_handler, deposit_confirm_callback
 from handlers.withdraw import get_withdraw_handler
@@ -23,6 +24,9 @@ async def post_init(application: Application) -> None:
     db.init_db()
     logger.info("Database initialized")
 
+    # Give the bot Application to api_server so game tasks can be triggered
+    api_srv.set_bot_application(application)
+
     api_port = int(os.environ.get("API_PORT", "8082"))
     runner, site = await start_server(api_port)
     application.bot_data["http_runner"] = runner
@@ -31,7 +35,6 @@ async def post_init(application: Application) -> None:
     await application.bot.set_my_commands([
         ("start", "Start the bot"),
         ("playbingo", "Start playing Bingo"),
-        ("playspin", "Start playing Spin (Coming Soon)"),
         ("balance", "Check account balance"),
         ("deposit", "Deposit funds"),
         ("withdraw", "Withdraw funds"),
@@ -39,7 +42,6 @@ async def post_init(application: Application) -> None:
         ("invite", "Get referral link"),
         ("convert", "Convert coins to ETB"),
         ("help", "Show help menu"),
-        ("transfer", "Transfer (Disabled)"),
     ])
     logger.info("Bot commands set")
 

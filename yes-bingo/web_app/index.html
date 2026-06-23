@@ -11,7 +11,7 @@
 
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner"></div>
-  <div style="color:#8b949e;font-size:14px;">Loading YES BINGO...</div>
+  <div style="color:#8b949e;font-size:14px;margin-top:8px;">Loading YES BINGO...</div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -21,12 +21,10 @@
   <div class="win-modal">
     <div class="win-emoji">🎉</div>
     <div class="win-title">BINGO!</div>
-    <div class="win-detail">👤 Winner: <span id="winnerName">-</span></div>
-    <div class="win-detail">🎯 Board #: <span id="winnerBoard">-</span></div>
+    <div class="win-detail">👤 <span id="winnerName">-</span></div>
+    <div class="win-detail">🎯 Board #<span id="winnerBoard">-</span></div>
     <div class="win-amount" id="winAmount">0.00 ETB</div>
-    <button class="btn btn-bingo active" onclick="closeWinModal()" style="grid-column:span 2;font-size:15px;">
-      🎮 Play Again
-    </button>
+    <button class="btn btn-bingo active" onclick="playAgain()" style="font-size:15px;">🎮 Play Again</button>
   </div>
 </div>
 
@@ -36,8 +34,8 @@
   <div class="header">
     <div class="header-left">
       <div class="live-dot"></div>
-      <span class="live-text">Live</span>
-      <span style="margin-left:8px;font-size:12px;color:#8b949e;">🎁 Bonus: <span id="bonusAmount">0.00</span></span>
+      <span class="live-text" id="liveText">Live</span>
+      <span style="margin-left:8px;font-size:12px;color:#8b949e;">🎁 <span id="bonusAmount">0.00</span></span>
     </div>
     <div class="header-balance">
       <span class="balance-etb">💰 <span id="headerBalance">0.00</span> ETB</span>
@@ -45,88 +43,119 @@
     </div>
   </div>
 
-  <!-- GAME TAB -->
+  <!-- ══════════════════════════════════════════════════════ GAME TAB -->
   <div class="tab-panel active" id="tab-game">
 
-    <!-- Game Info -->
-    <div class="game-info">
-      <div class="game-info-row">
-        <span class="game-id">🎯 Game: <span id="gameId">-</span></span>
+    <!-- LOBBY VIEW (shown when no game joined) -->
+    <div id="view-lobby">
+
+      <div class="lobby-section-title">🎯 BINGO GAMES</div>
+
+      <!-- Table header -->
+      <div class="lobby-table-header">
+        <span class="lth-bet">BET</span>
+        <span class="lth-win">WIN / PLAYER</span>
+        <span class="lth-status">STATUS &amp; JOIN</span>
+      </div>
+
+      <!-- Stake rows rendered by JS -->
+      <div id="lobbyRows"></div>
+
+      <!-- FREE DEMO row -->
+      <div class="lobby-row demo-row">
+        <div class="lobby-row-main">
+          <div class="lrow-bet">
+            <div class="lrow-stake">FREE</div>
+            <div class="lrow-unit">DEMO</div>
+          </div>
+          <div class="lrow-win">
+            <div style="color:var(--accent-blue);font-size:12px;">▷ Practice</div>
+            <div class="lrow-sub">No real money</div>
+          </div>
+          <div class="lrow-actions demo-actions">
+            <button class="lrow-btn open-btn" onclick="openLobbyDemo()">OPEN</button>
+            <button class="lrow-btn join-btn" onclick="joinGame(0)">TRY</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SPIN GAMES (coming soon) -->
+      <div class="lobby-section-title" style="margin-top:16px;">🎰 SPIN GAMES</div>
+      <div class="lobby-coming-soon">
+        <div>⏳</div>
+        <div>Coming Soon</div>
+      </div>
+
+    </div><!-- /view-lobby -->
+
+    <!-- BOARD VIEW (shown when in a game) -->
+    <div id="view-board" style="display:none;">
+
+      <div class="board-header-bar">
+        <button class="back-btn" onclick="backToLobby()">← Lobby</button>
+        <span class="game-id-badge">🎯 <span id="gameId">-</span></span>
         <div class="countdown-wrapper">
-          <span style="font-size:12px;color:#8b949e;">⏳</span>
           <span class="countdown waiting" id="countdown">--</span>
         </div>
       </div>
-      <div class="current-call">
-        <span>📢 </span><span id="currentCallLabel">Current Call: </span><span id="currentCall">-</span>
-      </div>
-    </div>
 
-    <!-- Called Numbers -->
-    <div class="called-grid-section">
-      <div class="section-title">Called Numbers (1–75)</div>
-      <div class="called-numbers-grid" id="calledGrid"></div>
-    </div>
+      <div class="current-call-bar">
+        <span style="font-size:12px;color:#8b949e;">📢 Called: </span>
+        <span id="currentCall" class="current-call-num">-</span>
+        <span style="font-size:12px;color:#8b949e;margin-left:auto;" id="calledCount">0/75</span>
+      </div>
 
-    <!-- Bingo Board -->
-    <div class="bingo-board-section">
-      <div class="section-title">📊 Your Bingo Board</div>
-      <div class="board-selector" id="boardSelector"></div>
-      <div class="bingo-header">
-        <div class="bingo-col-header b-col">B</div>
-        <div class="bingo-col-header i-col">I</div>
-        <div class="bingo-col-header n-col">N</div>
-        <div class="bingo-col-header g-col">G</div>
-        <div class="bingo-col-header o-col">O</div>
+      <!-- Called Numbers Grid -->
+      <div class="called-grid-section">
+        <div class="bingo-header">
+          <div class="bingo-col-header b-col">B</div>
+          <div class="bingo-col-header i-col">I</div>
+          <div class="bingo-col-header n-col">N</div>
+          <div class="bingo-col-header g-col">G</div>
+          <div class="bingo-col-header o-col">O</div>
+        </div>
+        <div class="called-numbers-grid" id="calledGrid"></div>
       </div>
-      <div class="bingo-grid" id="bingoGrid"></div>
-    </div>
 
-    <!-- Game Stats -->
-    <div class="game-stats">
-      <div class="stat-item">
-        <div class="stat-label">Board #</div>
-        <div class="stat-value" id="statBoard">-</div>
+      <!-- Board selector + grid -->
+      <div class="bingo-board-section">
+        <div class="board-selector" id="boardSelector"></div>
+        <div class="bingo-grid" id="bingoGrid"></div>
       </div>
-      <div class="stat-item">
-        <div class="stat-label">Players</div>
-        <div class="stat-value" id="statPlayers">0/100</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-label">Pot</div>
-        <div class="stat-value green" id="statPot">0.00 ETB</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-label">🏆 Winner Gets</div>
-        <div class="stat-value yellow" id="statPrize">80%</div>
-      </div>
-    </div>
 
-    <!-- Action Buttons -->
-    <div class="action-buttons">
-      <button class="btn btn-bingo" id="bingoBtn" onclick="claimBingo()" disabled>
-        🔴 BINGO!
-      </button>
-      <button class="btn btn-refresh" onclick="refreshGame()">🔄 Refresh</button>
-      <button class="btn btn-add-board" id="addBoardBtn" onclick="addBoard()">📊 Add Board</button>
-      <button class="btn btn-leave" onclick="leaveGame()">🚪 Leave</button>
-    </div>
+      <!-- Stats row -->
+      <div class="game-stats">
+        <div class="stat-item"><div class="stat-label">Board#</div><div class="stat-value" id="statBoard">-</div></div>
+        <div class="stat-item"><div class="stat-label">Players</div><div class="stat-value" id="statPlayers">0</div></div>
+        <div class="stat-item"><div class="stat-label">Pot</div><div class="stat-value green" id="statPot">0 ETB</div></div>
+        <div class="stat-item"><div class="stat-label">🏆 Prize</div><div class="stat-value yellow" id="statPrize">80%</div></div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="action-buttons">
+        <button class="btn btn-bingo" id="bingoBtn" onclick="claimBingo()" disabled>🔴 BINGO!</button>
+        <button class="btn btn-refresh" onclick="refreshGame()">🔄</button>
+        <button class="btn btn-add-board" onclick="addBoard()">📋 +Board</button>
+        <button class="btn btn-leave" onclick="leaveGame()">🚪 Leave</button>
+      </div>
+
+    </div><!-- /view-board -->
 
   </div><!-- /tab-game -->
 
   <!-- SCORES TAB -->
   <div class="tab-panel" id="tab-scores">
-    <div style="padding:12px 10px 4px;font-size:15px;font-weight:700;">🏆 Leaderboard</div>
+    <div class="tab-title">🏆 Leaderboard</div>
     <div class="list-card" id="leaderboardList">
-      <div style="padding:20px;text-align:center;color:#8b949e;">Loading...</div>
+      <div class="loading-placeholder">Loading...</div>
     </div>
   </div>
 
   <!-- HISTORY TAB -->
   <div class="tab-panel" id="tab-history">
-    <div style="padding:12px 10px 4px;font-size:15px;font-weight:700;">📊 Transaction History</div>
+    <div class="tab-title">📊 Transaction History</div>
     <div class="list-card" id="historyList">
-      <div style="padding:20px;text-align:center;color:#8b949e;">Loading...</div>
+      <div class="loading-placeholder">Loading...</div>
     </div>
   </div>
 
@@ -142,7 +171,7 @@
       </div>
     </div>
     <div style="margin:0 10px;">
-      <div style="color:#8b949e;font-size:12px;margin-bottom:8px;">Deposit to: <strong style="color:#e6edf3;">Telebirr 0928641996</strong> (YES BINGO)</div>
+      <div style="color:#8b949e;font-size:12px;margin-bottom:6px;">Deposit to: <strong style="color:#e6edf3;">Telebirr 0928641996</strong> (YES BINGO)</div>
       <div style="color:#8b949e;font-size:12px;">Min Deposit: 30 ETB &nbsp;|&nbsp; Min Withdraw: 100 ETB</div>
     </div>
   </div>
@@ -150,27 +179,40 @@
   <!-- PROFILE TAB -->
   <div class="tab-panel" id="tab-profile">
     <div class="profile-avatar">👤</div>
-    <div class="profile-name" id="profileName">Loading...</div>
+    <div class="profile-name" id="profileName">-</div>
     <div style="text-align:center;color:#8b949e;font-size:12px;margin-bottom:4px;" id="profileUsername"></div>
     <div class="profile-stats">
-      <div class="profile-stat-card">
-        <div class="profile-stat-val" id="profileWins">0</div>
-        <div class="profile-stat-lbl">Wins</div>
-      </div>
-      <div class="profile-stat-card">
-        <div class="profile-stat-val" id="profileGames">0</div>
-        <div class="profile-stat-lbl">Games</div>
-      </div>
-      <div class="profile-stat-card">
-        <div class="profile-stat-val" id="profileStreak">0</div>
-        <div class="profile-stat-lbl">Streak</div>
-      </div>
+      <div class="profile-stat-card"><div class="profile-stat-val" id="profileWins">0</div><div class="profile-stat-lbl">Wins</div></div>
+      <div class="profile-stat-card"><div class="profile-stat-val" id="profileGames">0</div><div class="profile-stat-lbl">Games</div></div>
+      <div class="profile-stat-card"><div class="profile-stat-val" id="profileStreak">0</div><div class="profile-stat-lbl">Streak</div></div>
     </div>
     <div class="list-card" style="margin:8px 10px;">
-      <div class="list-item"><span>💰 Total Deposited</span><span id="profileDeposits" class="list-value">0.00 ETB</span></div>
-      <div class="list-item"><span>💸 Total Withdrawn</span><span id="profileWithdrawn" class="list-value">0.00 ETB</span></div>
+      <div class="list-item"><span>💰 Deposited</span><span id="profileDeposits" class="list-value">0.00 ETB</span></div>
+      <div class="list-item"><span>💸 Withdrawn</span><span id="profileWithdrawn" class="list-value">0.00 ETB</span></div>
       <div class="list-item"><span>🪙 Coins</span><span id="profileCoins" class="list-value">0</span></div>
-      <div class="list-item"><span>🔗 Referral Code</span><span id="profileCode" class="list-value" style="font-size:12px;color:#58a6ff;"></span></div>
+      <div class="list-item"><span>🔗 Referral</span><span id="profileCode" class="list-value" style="font-size:12px;color:#58a6ff;"></span></div>
+    </div>
+  </div>
+
+  <!-- ADMIN TAB (only visible to admins) -->
+  <div class="tab-panel" id="tab-admin" style="display:none;">
+    <div class="tab-title">⚙️ Admin Dashboard</div>
+
+    <!-- Stats cards -->
+    <div class="admin-stats-grid" id="adminStatsGrid">
+      <div class="admin-stat-card"><div class="admin-stat-val" id="aStatUsers">-</div><div class="admin-stat-lbl">Users</div></div>
+      <div class="admin-stat-card"><div class="admin-stat-val" id="aStatGames">-</div><div class="admin-stat-lbl">Active Games</div></div>
+      <div class="admin-stat-card"><div class="admin-stat-val accent-green" id="aStatDeposits">-</div><div class="admin-stat-lbl">Total Deposits</div></div>
+      <div class="admin-stat-card"><div class="admin-stat-val accent-red" id="aStatHouse">-</div><div class="admin-stat-lbl">House Balance</div></div>
+    </div>
+
+    <!-- Pending section -->
+    <div class="admin-section-hdr">
+      ⏳ Pending Approvals
+      <button class="admin-refresh-btn" onclick="loadAdminDashboard()">↻</button>
+    </div>
+    <div id="adminPendingList">
+      <div class="loading-placeholder">Loading...</div>
     </div>
   </div>
 
@@ -182,16 +224,19 @@
     <span class="nav-icon">🎮</span><span>Game</span>
   </button>
   <button class="nav-item" onclick="switchTab('scores')" id="nav-scores">
-    <span class="nav-icon">🏆</span><span>Score</span>
+    <span class="nav-icon">🏆</span><span>Scores</span>
   </button>
   <button class="nav-item" onclick="switchTab('history')" id="nav-history">
-    <span class="nav-icon">📊</span><span>Hist</span>
+    <span class="nav-icon">📊</span><span>History</span>
   </button>
   <button class="nav-item" onclick="switchTab('wallet')" id="nav-wallet">
     <span class="nav-icon">💳</span><span>Wallet</span>
   </button>
   <button class="nav-item" onclick="switchTab('profile')" id="nav-profile">
     <span class="nav-icon">👤</span><span>Profile</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('admin')" id="nav-admin" style="display:none;">
+    <span class="nav-icon">⚙️</span><span>Admin</span>
   </button>
 </div>
 

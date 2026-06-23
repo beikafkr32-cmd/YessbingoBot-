@@ -1,8 +1,7 @@
 import asyncio
 import logging
 import random
-from typing import Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler
 import database as db
 import config
@@ -24,6 +23,17 @@ def get_game_lock(game_id: str) -> asyncio.Lock:
     return game_locks[game_id]
 
 
+def _lobby_url(user_id: int, stake: float | None = None) -> str | None:
+    """Build the Mini App lobby URL for a given user and optional stake."""
+    base = config.WEB_APP_URL
+    if not base:
+        return None
+    url = f"{base}?user_id={user_id}"
+    if stake is not None and stake > 0:
+        url += f"&stake={int(stake)}"
+    return url
+
+
 async def playbingo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     user = db.get_user(user_id)
@@ -31,29 +41,46 @@ async def playbingo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("Please /start first.")
         return
 
-    keyboard = [
-        [InlineKeyboardButton("💰 10 ETB", callback_data="join_10"),
-         InlineKeyboardButton("💰 20 ETB", callback_data="join_20")],
-        [InlineKeyboardButton("💰 50 ETB", callback_data="join_50"),
-         InlineKeyboardButton("💰 100 ETB", callback_data="join_100")],
-        [InlineKeyboardButton("🎮 FREE DEMO (10 coins)", callback_data="join_demo")],
-        [InlineKeyboardButton("🔙 Back", callback_data="main_menu")],
-    ]
+    lobby_url = _lobby_url(user_id)
+    keyboard = []
+
+    if lobby_url:
+        keyboard.append([
+            InlineKeyboardButton("🎮 Open Game Lobby", web_app=WebAppInfo(url=lobby_url))
+        ])
+    else:
+        # Fallback: show inline stake keyboard when Mini App URL not configured
+        keyboard = [
+            [InlineKeyboardButton("💰 10 ETB", callback_data="join_10"),
+             InlineKeyboardButton("💰 20 ETB", callback_data="join_20")],
+            [InlineKeyboardButton("💰 50 ETB", callback_data="join_50"),
+             InlineKeyboardButton("💰 100 ETB", callback_data="join_100")],
+            [InlineKeyboardButton("🎮 FREE DEMO", callback_data="join_demo")],
+        ]
+    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="main_menu")])
+
     text = (
-        f"🎯 *Select Your Bet*\n\n"
+        f"🎯 *YES BINGO — Game Lobby*\n\n"
         f"💰 Balance: {format_currency(user['wallet_balance'])}\n"
-        f"🪙 Coins: {user['coin_balance']}"
+        f"🪙 Coins: {user['coin_balance']}\n\n"
+        f"Tap *Open Game Lobby* to see all active games, pick your stake, and join!\n\n"
+        f"Available stakes: 10 · 20 · 50 · 100 ETB · FREE DEMO"
     )
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(text, parse_mode="Markdown",
-                                                       reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.callback_query.edit_message_text(
+            text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
     else:
-        await update.message.reply_text(text, parse_mode="Markdown",
-                                         reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.message.reply_text(
+            text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 
 async def join_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Fallback handler when Mini App is not available — joins inline."""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
@@ -64,32 +91,45 @@ async def join_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     data = query.data
     is_demo = data == "join_demo"
+    stake = 0.0 if is_demo else float(data.split("_")[1])
 
+    # If Mini App is available, open lobby with focused stake
+    lobby_url = _lobby_url(user_id, stake if not is_demo else None)
+    if lobby_url and not is_demo:
+        keyboard = [[
+            InlineKeyboardButton(
+                f"🎮 Open {int(stake)} ETB Lobby",
+                web_app=WebAppInfo(url=lobby_url)
+            )
+        ], [InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]
+        await query.edit_message_text(
+            f"🎯 *{int(stake)} ETB Games*\n\nTap the button to see active games and join!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # Inline join fallback (no Mini App)
     if is_demo:
-        stake = 0.0
         if user["coin_balance"] < config.DEMO_COST_COINS:
             await query.edit_message_text(
-                f"❌ Not enough coins!\n\nDemo costs {config.DEMO_COST_COINS} coins.\n"
-                f"Your coins: {user['coin_balance']}\n\nEarn coins by referring friends!"
+                f"❌ Need {config.DEMO_COST_COINS} coins for demo.\nYour coins: {user['coin_balance']}"
             )
             return
     else:
-        stake = float(data.split("_")[1])
         if user["wallet_balance"] < stake:
             await query.edit_message_text(
-                f"❌ Insufficient balance!\n\n"
-                f"Required: {format_currency(stake)}\n"
-                f"Your balance: {format_currency(user['wallet_balance'])}\n\n"
-                f"Use /deposit to add funds."
+                f"❌ Insufficient balance!\nNeed: {format_currency(stake)}\n"
+                f"Have: {format_currency(user['wallet_balance'])}"
             )
             return
 
-    # Check if already in a game
+    # Check existing game
     conn = db.get_connection()
     try:
         row = conn.execute(
-            "SELECT gp.game_id FROM game_players gp JOIN games g ON gp.game_id = g.game_id "
-            "WHERE gp.user_id = ? AND g.status IN ('waiting', 'active')",
+            "SELECT gp.game_id FROM game_players gp JOIN games g ON gp.game_id=g.game_id "
+            "WHERE gp.user_id=? AND g.status IN ('waiting','active')",
             (user_id,)
         ).fetchone()
         existing_game = row["game_id"] if row else None
@@ -98,8 +138,7 @@ async def join_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if existing_game:
         await query.edit_message_text(
-            f"⚠️ You are already in game `{existing_game}`.\n\nUse the Leave button to exit first.",
-            parse_mode="Markdown"
+            f"⚠️ Already in game `{existing_game}`.", parse_mode="Markdown"
         )
         return
 
@@ -126,7 +165,7 @@ async def join_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         with conn:
             conn.execute(
-                "UPDATE users SET total_games = total_games + 1, updated_at = datetime('now') WHERE telegram_id = ?",
+                "UPDATE users SET total_games=total_games+1,updated_at=datetime('now') WHERE telegram_id=?",
                 (user_id,)
             )
     finally:
@@ -135,24 +174,22 @@ async def join_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     game = db.get_game(game_id)
     player_count = game["player_count"]
 
-    # Broadcast player joined to existing WebSocket clients in this game
     await broadcaster.broadcast(game_id, {
         "type": "player_joined",
         "player_count": player_count,
         "total_pot": game["total_pot"],
     })
 
-    # Build message with Web App button
-    web_app_url = config.WEB_APP_URL
+    # Build message
+    mini_url = _lobby_url(user_id)
     keyboard_rows = []
-    if web_app_url:
-        from telegram import WebAppInfo
-        mini_url = f"{web_app_url}?game_id={game_id}&user_id={user_id}"
+    if mini_url:
+        game_url = f"{config.WEB_APP_URL}?game_id={game_id}&user_id={user_id}"
         keyboard_rows.append([
-            InlineKeyboardButton("🎮 Open Game Board", web_app=WebAppInfo(url=mini_url))
+            InlineKeyboardButton("🎮 Open Game Board", web_app=WebAppInfo(url=game_url))
         ])
     keyboard_rows.append([
-        InlineKeyboardButton("🚪 Leave Game", callback_data=f"leave_{game_id}"),
+        InlineKeyboardButton("🚪 Leave", callback_data=f"leave_{game_id}"),
         InlineKeyboardButton("📋 Add Board", callback_data=f"addboard_{game_id}"),
     ])
 
@@ -161,8 +198,8 @@ async def join_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"💰 Stake: {format_currency(stake) if not is_demo else 'FREE DEMO'}\n"
         f"👥 Players: {player_count}/{config.MAX_PLAYERS}\n"
         f"💰 Pot: {format_currency(game['total_pot'])}\n"
-        f"🎯 Your Board #: {board_number}\n\n"
-        f"⏳ Waiting for players... Countdown starts when 2+ players join."
+        f"🎯 Board #: {board_number}\n\n"
+        f"⏳ Waiting for players..."
     )
     await query.edit_message_text(text, parse_mode="Markdown",
                                    reply_markup=InlineKeyboardMarkup(keyboard_rows))
@@ -174,15 +211,11 @@ async def join_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def run_game_countdown(game_id: str, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
-        total = config.COUNTDOWN_SECONDS
-        for remaining in range(total, 0, -1):
+        for remaining in range(config.COUNTDOWN_SECONDS, 0, -1):
             game = db.get_game(game_id)
             if not game or game["status"] != "waiting":
                 return
-            await broadcaster.broadcast(game_id, {
-                "type": "countdown",
-                "seconds": remaining,
-            })
+            await broadcaster.broadcast(game_id, {"type": "countdown", "seconds": remaining})
             await asyncio.sleep(1)
 
         game = db.get_game(game_id)
@@ -197,8 +230,8 @@ async def run_game_countdown(game_id: str, context: ContextTypes.DEFAULT_TYPE) -
                     db.create_transaction(p["user_id"], game["stake"], "refund",
                                           description="Game cancelled – not enough players")
                 try:
-                    await context.bot.send_message(
-                        p["user_id"], "⚠️ Game cancelled — not enough players. Refund issued.")
+                    await context.bot.send_message(p["user_id"],
+                        "⚠️ Game cancelled — not enough players. Refund issued.")
                 except Exception:
                     pass
             db.update_game(game_id, status="finished")
@@ -222,7 +255,7 @@ async def run_game_countdown(game_id: str, context: ContextTypes.DEFAULT_TYPE) -
                     f"🎮 *Game {game_id} Started!*\n\n"
                     f"👥 {len(players)} players\n"
                     f"💰 Pot: {format_currency(game['total_pot'])}\n"
-                    f"🏆 Prize: {format_currency(game['total_pot'] * config.WINNER_PERCENTAGE)}\n\n"
+                    f"🏆 Prize: {format_currency(game['total_pot'] * config.WINNER_PERCENTAGE)}\n"
                     f"Numbers called every {config.CALL_INTERVAL}s. Good luck! 🍀",
                     parse_mode="Markdown"
                 )
@@ -253,7 +286,6 @@ async def run_game(game_id: str, context: ContextTypes.DEFAULT_TYPE) -> None:
         called.append(number)
         db.update_game(game_id, called_numbers=called)
 
-        # Broadcast called number to all Mini App clients in real-time
         await broadcaster.broadcast(game_id, {
             "type": "number_called",
             "number": number,
@@ -261,14 +293,13 @@ async def run_game(game_id: str, context: ContextTypes.DEFAULT_TYPE) -> None:
             "remaining": 75 - len(called),
         })
 
-        # Also send Telegram message to active players
         players = db.get_game_players(game_id)
         active_players = [p for p in players if not p["is_eliminated"]]
         for p in active_players:
             try:
                 await context.bot.send_message(
                     p["user_id"],
-                    f"📢 *{game_id}* — `{number}` called  ({len(called)}/75)",
+                    f"📢 *{game_id}* — `{number}` ({len(called)}/75)",
                     parse_mode="Markdown"
                 )
             except Exception:
@@ -293,14 +324,13 @@ async def process_winner(game_id: str, winner_id: int, winner_name: str,
     db.update_game(game_id, status="finished", winner_id=winner_id, ended_at="datetime('now')")
     db.update_player(game_id, winner_id, is_winner=1)
     db.update_balance(winner_id, first_prize)
-    db.create_transaction(winner_id, first_prize, "win", description=f"Bingo win in game {game_id}")
+    db.create_transaction(winner_id, first_prize, "win", description=f"Win in {game_id}")
 
     conn = db.get_connection()
     try:
         with conn:
             conn.execute(
-                "UPDATE users SET total_wins = total_wins + 1, win_streak = win_streak + 1, "
-                "updated_at = datetime('now') WHERE telegram_id = ?",
+                "UPDATE users SET total_wins=total_wins+1,win_streak=win_streak+1,updated_at=datetime('now') WHERE telegram_id=?",
                 (winner_id,)
             )
     finally:
@@ -309,7 +339,6 @@ async def process_winner(game_id: str, winner_id: int, winner_name: str,
     player = db.get_player_in_game(game_id, winner_id)
     board_number = player["board_numbers"][0] if player and player["board_numbers"] else 0
 
-    # Broadcast game end to all Mini App clients
     await broadcaster.broadcast(game_id, {
         "type": "game_end",
         "winner_id": winner_id,
@@ -335,7 +364,6 @@ async def end_game_no_winner(game_id: str, context: ContextTypes.DEFAULT_TYPE) -
     if not game:
         return
     db.update_game(game_id, status="finished", ended_at="datetime('now')")
-
     await broadcaster.broadcast(game_id, {"type": "game_no_winner"})
 
     players = db.get_game_players(game_id)
@@ -344,11 +372,11 @@ async def end_game_no_winner(game_id: str, context: ContextTypes.DEFAULT_TYPE) -
         if stake > 0:
             db.update_balance(p["user_id"], stake)
             db.create_transaction(p["user_id"], stake, "refund",
-                                  description=f"Refund – no winner in game {game_id}")
+                                  description=f"Refund – no winner in {game_id}")
         try:
             await context.bot.send_message(
                 p["user_id"],
-                f"🎮 *Game {game_id} Over*\n\nAll 75 numbers called — no winner.\n"
+                f"🎮 *Game {game_id}* — No winner.\n"
                 f"{'💰 Refunded: ' + format_currency(stake) if stake > 0 else ''}",
                 parse_mode="Markdown"
             )
@@ -365,30 +393,25 @@ async def claim_bingo_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     async with get_game_lock(game_id):
         game = db.get_game(game_id)
         if not game or game["status"] != "active":
-            await query.answer("Game is not active.", show_alert=True)
+            await query.answer("Game not active.", show_alert=True)
             return
 
         player = db.get_player_in_game(game_id, user_id)
-        if not player:
-            await query.answer("You are not in this game.", show_alert=True)
-            return
-        if player["is_eliminated"]:
-            await query.answer("You have been eliminated.", show_alert=True)
+        if not player or player["is_eliminated"]:
+            await query.answer("Not in game or eliminated.", show_alert=True)
             return
 
         called = game["called_numbers"]
-        boards_to_check = [player["main_board"]] + player["extra_boards"]
         has_bingo = any(
             check_bingo([[b[c * 5 + r] for r in range(5)] for c in range(5)], called)
-            for b in boards_to_check
+            for b in [player["main_board"]] + player["extra_boards"]
         )
 
         if not has_bingo:
             db.update_player(game_id, user_id, is_eliminated=1)
             await broadcaster.broadcast(game_id, {"type": "player_eliminated", "user_id": user_id})
             await query.edit_message_text(
-                f"❌ *False BINGO Claim!*\n\nYou have been eliminated from game {game_id}.",
-                parse_mode="Markdown"
+                f"❌ *False BINGO!* — Eliminated from game {game_id}.", parse_mode="Markdown"
             )
             players = db.get_game_players(game_id)
             if not any(p for p in players if not p["is_eliminated"]):
@@ -396,8 +419,7 @@ async def claim_bingo_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             return
 
         await process_winner(game_id, user_id, query.from_user.first_name, context)
-        await query.edit_message_text("🎉 *BINGO! You won!*\n\nCongratulations!",
-                                      parse_mode="Markdown")
+        await query.edit_message_text("🎉 *BINGO! You won!*", parse_mode="Markdown")
 
 
 async def leave_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -413,7 +435,7 @@ async def leave_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     player = db.get_player_in_game(game_id, user_id)
     if not player:
-        await query.edit_message_text("❌ You are not in this game.")
+        await query.edit_message_text("❌ Not in this game.")
         return
 
     if game["status"] == "waiting":
@@ -422,8 +444,7 @@ async def leave_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if stake > 0:
             db.update_balance(user_id, stake)
         await broadcaster.broadcast(game_id, {
-            "type": "player_left",
-            "user_id": user_id,
+            "type": "player_left", "user_id": user_id,
             "player_count": max(0, game["player_count"] - 1),
         })
         await query.edit_message_text(
@@ -431,12 +452,9 @@ async def leave_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"{'💰 Refunded: ' + format_currency(stake) if stake > 0 else ''}"
         )
     elif game["status"] == "active":
-        await query.edit_message_text(
-            "❌ Game already started — no refund after the game begins.\n"
-            "Your stake stays in the pot."
-        )
+        await query.edit_message_text("❌ Can't leave — game already started.")
     else:
-        await query.edit_message_text("❌ Game is already finished.")
+        await query.edit_message_text("❌ Game already finished.")
 
 
 async def add_board_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -452,11 +470,10 @@ async def add_board_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     player = db.get_player_in_game(game_id, user_id)
     if not player:
-        await query.answer("You are not in this game.", show_alert=True)
+        await query.answer("Not in this game.", show_alert=True)
         return
     if len(player["extra_boards"]) >= config.MAX_EXTRA_BOARDS:
-        await query.answer(f"Maximum {config.MAX_EXTRA_BOARDS} extra boards allowed.",
-                           show_alert=True)
+        await query.answer(f"Max {config.MAX_EXTRA_BOARDS} extra boards.", show_alert=True)
         return
 
     user = db.get_user(user_id)
@@ -471,27 +488,25 @@ async def add_board_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     flat = flatten_board(board)
     board_number = get_board_number() + 100
 
-    extra_boards = player["extra_boards"] + [flat]
+    extra_boards  = player["extra_boards"] + [flat]
     board_numbers = player["board_numbers"] + [board_number]
 
     db.update_balance(user_id, -config.EXTRA_BOARD_COST)
     db.update_player(game_id, user_id, extra_boards=extra_boards, board_numbers=board_numbers)
 
-    is_last = len(extra_boards) >= config.MAX_EXTRA_BOARDS
-    coin_reward = config.EXTRA_BOARD_ALL_COIN_REWARD if is_last else config.EXTRA_BOARD_COIN_REWARD
+    is_last      = len(extra_boards) >= config.MAX_EXTRA_BOARDS
+    coin_reward  = config.EXTRA_BOARD_ALL_COIN_REWARD if is_last else config.EXTRA_BOARD_COIN_REWARD
     db.update_coins(user_id, coin_reward)
     db.create_transaction(user_id, config.EXTRA_BOARD_COST, "extra_board",
                           description=f"Extra board #{board_number} in {game_id}")
 
-    # Broadcast new board to Mini App
-    await broadcaster.send_to_user(game_id, user_id, {
-        "type": "board_added",
-        "flat": flat,
-        "board_number": board_number,
+    await broadcaster.broadcast(game_id, {
+        "type": "board_added", "flat": flat, "board_number": board_number,
+        "_target_user": user_id,
     })
 
-    await query.answer(
-        f"✅ Extra board #{board_number} added! +{coin_reward} coin(s)", show_alert=True)
+    await query.answer(f"✅ Extra board #{board_number} added! +{coin_reward} coin(s)",
+                       show_alert=True)
 
 
 def get_game_handlers() -> list:

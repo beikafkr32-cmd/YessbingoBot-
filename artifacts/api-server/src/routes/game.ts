@@ -14,13 +14,31 @@ async function proxyPost(path: string, body: unknown): Promise<Response> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(8000),
   });
 }
+
+router.get("/lobby", async (req: Request, res: Response) => {
+  try {
+    const r = await proxyGet("/api/lobby", {});
+    res.status(r.status).json(await r.json());
+  } catch {
+    res.status(503).json({ error: "game server unavailable" });
+  }
+});
 
 router.get("/game/state", async (req: Request, res: Response) => {
   try {
     const r = await proxyGet("/api/game/state", req.query as Record<string, string>);
+    res.status(r.status).json(await r.json());
+  } catch {
+    res.status(503).json({ error: "game server unavailable" });
+  }
+});
+
+router.post("/game/join", async (req: Request, res: Response) => {
+  try {
+    const r = await proxyPost("/api/game/join", req.body as unknown);
     res.status(r.status).json(await r.json());
   } catch {
     res.status(503).json({ error: "game server unavailable" });
@@ -57,6 +75,42 @@ router.get("/history", async (req: Request, res: Response) => {
 router.get("/profile", async (req: Request, res: Response) => {
   try {
     const r = await proxyGet("/api/profile", req.query as Record<string, string>);
+    res.status(r.status).json(await r.json());
+  } catch {
+    res.status(503).json({ error: "game server unavailable" });
+  }
+});
+
+router.get("/admin/pending", async (req: Request, res: Response) => {
+  try {
+    const r = await proxyGet("/api/admin/pending", req.query as Record<string, string>);
+    res.status(r.status).json(await r.json());
+  } catch {
+    res.status(503).json({ error: "game server unavailable" });
+  }
+});
+
+router.post("/admin/approve", async (req: Request, res: Response) => {
+  try {
+    const r = await proxyPost("/api/admin/approve", req.body as unknown);
+    res.status(r.status).json(await r.json());
+  } catch {
+    res.status(503).json({ error: "game server unavailable" });
+  }
+});
+
+router.post("/admin/reject", async (req: Request, res: Response) => {
+  try {
+    const r = await proxyPost("/api/admin/reject", req.body as unknown);
+    res.status(r.status).json(await r.json());
+  } catch {
+    res.status(503).json({ error: "game server unavailable" });
+  }
+});
+
+router.get("/admin/stats", async (req: Request, res: Response) => {
+  try {
+    const r = await proxyGet("/api/admin/stats", req.query as Record<string, string>);
     res.status(r.status).json(await r.json());
   } catch {
     res.status(503).json({ error: "game server unavailable" });
