@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>YES BINGO</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div style="color:#8b949e;font-size:14px;">Loading YES BINGO...</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Win Modal -->
+<div class="win-modal-overlay" id="winModal">
+  <div class="win-modal">
+    <div class="win-emoji">🎉</div>
+    <div class="win-title">BINGO!</div>
+    <div class="win-detail">👤 Winner: <span id="winnerName">-</span></div>
+    <div class="win-detail">🎯 Board #: <span id="winnerBoard">-</span></div>
+    <div class="win-amount" id="winAmount">0.00 ETB</div>
+    <button class="btn btn-bingo active" onclick="closeWinModal()" style="grid-column:span 2;font-size:15px;">
+      🎮 Play Again
+    </button>
+  </div>
+</div>
+
+<div class="app">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="live-dot"></div>
+      <span class="live-text">Live</span>
+      <span style="margin-left:8px;font-size:12px;color:#8b949e;">🎁 Bonus: <span id="bonusAmount">0.00</span></span>
+    </div>
+    <div class="header-balance">
+      <span class="balance-etb">💰 <span id="headerBalance">0.00</span> ETB</span>
+      <span class="balance-coins">🪙 <span id="headerCoins">0</span></span>
+    </div>
+  </div>
+
+  <!-- GAME TAB -->
+  <div class="tab-panel active" id="tab-game">
+
+    <!-- Game Info -->
+    <div class="game-info">
+      <div class="game-info-row">
+        <span class="game-id">🎯 Game: <span id="gameId">-</span></span>
+        <div class="countdown-wrapper">
+          <span style="font-size:12px;color:#8b949e;">⏳</span>
+          <span class="countdown waiting" id="countdown">--</span>
+        </div>
+      </div>
+      <div class="current-call">
+        <span>📢 </span><span id="currentCallLabel">Current Call: </span><span id="currentCall">-</span>
+      </div>
+    </div>
+
+    <!-- Called Numbers -->
+    <div class="called-grid-section">
+      <div class="section-title">Called Numbers (1–75)</div>
+      <div class="called-numbers-grid" id="calledGrid"></div>
+    </div>
+
+    <!-- Bingo Board -->
+    <div class="bingo-board-section">
+      <div class="section-title">📊 Your Bingo Board</div>
+      <div class="board-selector" id="boardSelector"></div>
+      <div class="bingo-header">
+        <div class="bingo-col-header b-col">B</div>
+        <div class="bingo-col-header i-col">I</div>
+        <div class="bingo-col-header n-col">N</div>
+        <div class="bingo-col-header g-col">G</div>
+        <div class="bingo-col-header o-col">O</div>
+      </div>
+      <div class="bingo-grid" id="bingoGrid"></div>
+    </div>
+
+    <!-- Game Stats -->
+    <div class="game-stats">
+      <div class="stat-item">
+        <div class="stat-label">Board #</div>
+        <div class="stat-value" id="statBoard">-</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Players</div>
+        <div class="stat-value" id="statPlayers">0/100</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Pot</div>
+        <div class="stat-value green" id="statPot">0.00 ETB</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">🏆 Winner Gets</div>
+        <div class="stat-value yellow" id="statPrize">80%</div>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="action-buttons">
+      <button class="btn btn-bingo" id="bingoBtn" onclick="claimBingo()" disabled>
+        🔴 BINGO!
+      </button>
+      <button class="btn btn-refresh" onclick="refreshGame()">🔄 Refresh</button>
+      <button class="btn btn-add-board" id="addBoardBtn" onclick="addBoard()">📊 Add Board</button>
+      <button class="btn btn-leave" onclick="leaveGame()">🚪 Leave</button>
+    </div>
+
+  </div><!-- /tab-game -->
+
+  <!-- SCORES TAB -->
+  <div class="tab-panel" id="tab-scores">
+    <div style="padding:12px 10px 4px;font-size:15px;font-weight:700;">🏆 Leaderboard</div>
+    <div class="list-card" id="leaderboardList">
+      <div style="padding:20px;text-align:center;color:#8b949e;">Loading...</div>
+    </div>
+  </div>
+
+  <!-- HISTORY TAB -->
+  <div class="tab-panel" id="tab-history">
+    <div style="padding:12px 10px 4px;font-size:15px;font-weight:700;">📊 Transaction History</div>
+    <div class="list-card" id="historyList">
+      <div style="padding:20px;text-align:center;color:#8b949e;">Loading...</div>
+    </div>
+  </div>
+
+  <!-- WALLET TAB -->
+  <div class="tab-panel" id="tab-wallet">
+    <div class="wallet-card">
+      <div class="wallet-sub">💰 Wallet Balance</div>
+      <div class="wallet-balance" id="walletBalance">0.00 ETB</div>
+      <div class="wallet-sub">🪙 Coins: <span id="walletCoins">0</span></div>
+      <div class="wallet-btns">
+        <button class="btn btn-add-board" onclick="openTelegramLink('deposit')">💰 Deposit</button>
+        <button class="btn btn-leave" style="color:white;background:var(--accent-red);border:none;" onclick="openTelegramLink('withdraw')">💸 Withdraw</button>
+      </div>
+    </div>
+    <div style="margin:0 10px;">
+      <div style="color:#8b949e;font-size:12px;margin-bottom:8px;">Deposit to: <strong style="color:#e6edf3;">Telebirr 0928641996</strong> (YES BINGO)</div>
+      <div style="color:#8b949e;font-size:12px;">Min Deposit: 30 ETB &nbsp;|&nbsp; Min Withdraw: 100 ETB</div>
+    </div>
+  </div>
+
+  <!-- PROFILE TAB -->
+  <div class="tab-panel" id="tab-profile">
+    <div class="profile-avatar">👤</div>
+    <div class="profile-name" id="profileName">Loading...</div>
+    <div style="text-align:center;color:#8b949e;font-size:12px;margin-bottom:4px;" id="profileUsername"></div>
+    <div class="profile-stats">
+      <div class="profile-stat-card">
+        <div class="profile-stat-val" id="profileWins">0</div>
+        <div class="profile-stat-lbl">Wins</div>
+      </div>
+      <div class="profile-stat-card">
+        <div class="profile-stat-val" id="profileGames">0</div>
+        <div class="profile-stat-lbl">Games</div>
+      </div>
+      <div class="profile-stat-card">
+        <div class="profile-stat-val" id="profileStreak">0</div>
+        <div class="profile-stat-lbl">Streak</div>
+      </div>
+    </div>
+    <div class="list-card" style="margin:8px 10px;">
+      <div class="list-item"><span>💰 Total Deposited</span><span id="profileDeposits" class="list-value">0.00 ETB</span></div>
+      <div class="list-item"><span>💸 Total Withdrawn</span><span id="profileWithdrawn" class="list-value">0.00 ETB</span></div>
+      <div class="list-item"><span>🪙 Coins</span><span id="profileCoins" class="list-value">0</span></div>
+      <div class="list-item"><span>🔗 Referral Code</span><span id="profileCode" class="list-value" style="font-size:12px;color:#58a6ff;"></span></div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<!-- Bottom Nav -->
+<div class="bottom-nav">
+  <button class="nav-item active" onclick="switchTab('game')" id="nav-game">
+    <span class="nav-icon">🎮</span><span>Game</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('scores')" id="nav-scores">
+    <span class="nav-icon">🏆</span><span>Score</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('history')" id="nav-history">
+    <span class="nav-icon">📊</span><span>Hist</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('wallet')" id="nav-wallet">
+    <span class="nav-icon">💳</span><span>Wallet</span>
+  </button>
+  <button class="nav-item" onclick="switchTab('profile')" id="nav-profile">
+    <span class="nav-icon">👤</span><span>Profile</span>
+  </button>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
