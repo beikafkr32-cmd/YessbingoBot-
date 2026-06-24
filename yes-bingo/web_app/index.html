@@ -28,6 +28,20 @@
   </div>
 </div>
 
+<!-- Board Selection Modal -->
+<div class="modal-overlay" id="boardSelectModal">
+  <div class="modal-box">
+    <div class="modal-title">🎯 Pick Your Board Number</div>
+    <div class="modal-subtitle" id="boardSelectStakeLabel">Stake: — ETB</div>
+    <div class="board-pick-grid" id="boardPickGrid"></div>
+    <div class="modal-selected">Selected: <span id="selectedBoardNum">—</span></div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeBoardSelect()">Cancel</button>
+      <button class="modal-confirm" id="boardConfirmBtn" onclick="confirmBoardSelect()">▶ Start Game</button>
+    </div>
+  </div>
+</div>
+
 <div class="app">
 
   <!-- Header -->
@@ -43,22 +57,17 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════════════ GAME TAB -->
+  <!-- ══════════ GAME TAB ══════════ -->
   <div class="tab-panel active" id="tab-game">
 
-    <!-- LOBBY VIEW (shown when no game joined) -->
+    <!-- ── LOBBY VIEW ── -->
     <div id="view-lobby">
-
       <div class="lobby-section-title">🎯 BINGO GAMES</div>
-
-      <!-- Table header -->
       <div class="lobby-table-header">
         <span class="lth-bet">BET</span>
         <span class="lth-win">WIN / PLAYER</span>
         <span class="lth-status">STATUS &amp; JOIN</span>
       </div>
-
-      <!-- Stake rows rendered by JS -->
       <div id="lobbyRows"></div>
 
       <!-- FREE DEMO row -->
@@ -69,26 +78,25 @@
             <div class="lrow-unit">DEMO</div>
           </div>
           <div class="lrow-win">
-            <div style="color:var(--accent-blue);font-size:12px;">▷ Practice</div>
+            <div style="color:var(--accent-blue);font-size:12px;">▷ Practice Mode</div>
             <div class="lrow-sub">No real money</div>
           </div>
-          <div class="lrow-actions demo-actions">
-            <button class="lrow-btn open-btn" onclick="openLobbyDemo()">OPEN</button>
-            <button class="lrow-btn join-btn" onclick="joinGame(0)">TRY</button>
+          <div class="lrow-right" style="flex-direction:row;align-items:center;gap:6px;">
+            <button class="lrow-btn open-btn" onclick="openBoardSelect(0)">OPEN</button>
+            <button class="lrow-btn join-btn" onclick="openBoardSelect(0)">TRY</button>
           </div>
         </div>
       </div>
 
-      <!-- SPIN GAMES (coming soon) -->
+      <!-- SPIN GAMES placeholder -->
       <div class="lobby-section-title" style="margin-top:16px;">🎰 SPIN GAMES</div>
       <div class="lobby-coming-soon">
-        <div>⏳</div>
+        <div style="font-size:28px;">⏳</div>
         <div>Coming Soon</div>
       </div>
-
     </div><!-- /view-lobby -->
 
-    <!-- BOARD VIEW (shown when in a game) -->
+    <!-- ── BOARD VIEW ── -->
     <div id="view-board" style="display:none;">
 
       <div class="board-header-bar">
@@ -99,14 +107,23 @@
         </div>
       </div>
 
+      <!-- Current Call -->
       <div class="current-call-bar">
-        <span style="font-size:12px;color:#8b949e;">📢 Called: </span>
+        <span style="font-size:12px;color:#8b949e;">📢 Last:</span>
         <span id="currentCall" class="current-call-num">-</span>
         <span style="font-size:12px;color:#8b949e;margin-left:auto;" id="calledCount">0/75</span>
       </div>
 
-      <!-- Called Numbers Grid -->
+      <!-- Called Numbers 1-75 Grid -->
       <div class="called-grid-section">
+        <div class="section-label">Called Numbers (1 – 75)</div>
+        <div class="called-numbers-grid" id="calledGrid"></div>
+      </div>
+
+      <!-- Bingo Board -->
+      <div class="bingo-board-section">
+        <div class="board-selector" id="boardSelector"></div>
+        <!-- B I N G O column headers -->
         <div class="bingo-header">
           <div class="bingo-col-header b-col">B</div>
           <div class="bingo-col-header i-col">I</div>
@@ -114,21 +131,15 @@
           <div class="bingo-col-header g-col">G</div>
           <div class="bingo-col-header o-col">O</div>
         </div>
-        <div class="called-numbers-grid" id="calledGrid"></div>
-      </div>
-
-      <!-- Board selector + grid -->
-      <div class="bingo-board-section">
-        <div class="board-selector" id="boardSelector"></div>
         <div class="bingo-grid" id="bingoGrid"></div>
       </div>
 
-      <!-- Stats row -->
+      <!-- Game Stats -->
       <div class="game-stats">
         <div class="stat-item"><div class="stat-label">Board#</div><div class="stat-value" id="statBoard">-</div></div>
         <div class="stat-item"><div class="stat-label">Players</div><div class="stat-value" id="statPlayers">0</div></div>
         <div class="stat-item"><div class="stat-label">Pot</div><div class="stat-value green" id="statPot">0 ETB</div></div>
-        <div class="stat-item"><div class="stat-label">🏆 Prize</div><div class="stat-value yellow" id="statPrize">80%</div></div>
+        <div class="stat-item"><div class="stat-label">🏆 Prize</div><div class="stat-value yellow" id="statPrize">—</div></div>
       </div>
 
       <!-- Action Buttons -->
@@ -140,23 +151,18 @@
       </div>
 
     </div><!-- /view-board -->
-
   </div><!-- /tab-game -->
 
   <!-- SCORES TAB -->
   <div class="tab-panel" id="tab-scores">
     <div class="tab-title">🏆 Leaderboard</div>
-    <div class="list-card" id="leaderboardList">
-      <div class="loading-placeholder">Loading...</div>
-    </div>
+    <div class="list-card" id="leaderboardList"><div class="loading-placeholder">Loading...</div></div>
   </div>
 
   <!-- HISTORY TAB -->
   <div class="tab-panel" id="tab-history">
     <div class="tab-title">📊 Transaction History</div>
-    <div class="list-card" id="historyList">
-      <div class="loading-placeholder">Loading...</div>
-    </div>
+    <div class="list-card" id="historyList"><div class="loading-placeholder">Loading...</div></div>
   </div>
 
   <!-- WALLET TAB -->
@@ -194,50 +200,29 @@
     </div>
   </div>
 
-  <!-- ADMIN TAB (only visible to admins) -->
+  <!-- ADMIN TAB -->
   <div class="tab-panel" id="tab-admin" style="display:none;">
     <div class="tab-title">⚙️ Admin Dashboard</div>
-
-    <!-- Stats cards -->
-    <div class="admin-stats-grid" id="adminStatsGrid">
+    <div class="admin-stats-grid">
       <div class="admin-stat-card"><div class="admin-stat-val" id="aStatUsers">-</div><div class="admin-stat-lbl">Users</div></div>
       <div class="admin-stat-card"><div class="admin-stat-val" id="aStatGames">-</div><div class="admin-stat-lbl">Active Games</div></div>
-      <div class="admin-stat-card"><div class="admin-stat-val accent-green" id="aStatDeposits">-</div><div class="admin-stat-lbl">Total Deposits</div></div>
-      <div class="admin-stat-card"><div class="admin-stat-val accent-red" id="aStatHouse">-</div><div class="admin-stat-lbl">House Balance</div></div>
+      <div class="admin-stat-card"><div class="admin-stat-val accent-green" id="aStatDeposits">-</div><div class="admin-stat-lbl">Deposits</div></div>
+      <div class="admin-stat-card"><div class="admin-stat-val accent-red" id="aStatHouse">-</div><div class="admin-stat-lbl">House Bal</div></div>
     </div>
-
-    <!-- Pending section -->
-    <div class="admin-section-hdr">
-      ⏳ Pending Approvals
-      <button class="admin-refresh-btn" onclick="loadAdminDashboard()">↻</button>
-    </div>
-    <div id="adminPendingList">
-      <div class="loading-placeholder">Loading...</div>
-    </div>
+    <div class="admin-section-hdr">⏳ Pending Approvals <button class="admin-refresh-btn" onclick="loadAdminDashboard()">↻</button></div>
+    <div id="adminPendingList"><div class="loading-placeholder">Loading...</div></div>
   </div>
 
 </div><!-- /app -->
 
 <!-- Bottom Nav -->
 <div class="bottom-nav">
-  <button class="nav-item active" onclick="switchTab('game')" id="nav-game">
-    <span class="nav-icon">🎮</span><span>Game</span>
-  </button>
-  <button class="nav-item" onclick="switchTab('scores')" id="nav-scores">
-    <span class="nav-icon">🏆</span><span>Scores</span>
-  </button>
-  <button class="nav-item" onclick="switchTab('history')" id="nav-history">
-    <span class="nav-icon">📊</span><span>History</span>
-  </button>
-  <button class="nav-item" onclick="switchTab('wallet')" id="nav-wallet">
-    <span class="nav-icon">💳</span><span>Wallet</span>
-  </button>
-  <button class="nav-item" onclick="switchTab('profile')" id="nav-profile">
-    <span class="nav-icon">👤</span><span>Profile</span>
-  </button>
-  <button class="nav-item" onclick="switchTab('admin')" id="nav-admin" style="display:none;">
-    <span class="nav-icon">⚙️</span><span>Admin</span>
-  </button>
+  <button class="nav-item active" onclick="switchTab('game')"    id="nav-game">   <span class="nav-icon">🎮</span><span>Game</span></button>
+  <button class="nav-item"        onclick="switchTab('scores')"  id="nav-scores">  <span class="nav-icon">🏆</span><span>Scores</span></button>
+  <button class="nav-item"        onclick="switchTab('history')" id="nav-history"> <span class="nav-icon">📊</span><span>History</span></button>
+  <button class="nav-item"        onclick="switchTab('wallet')"  id="nav-wallet">  <span class="nav-icon">💳</span><span>Wallet</span></button>
+  <button class="nav-item"        onclick="switchTab('profile')" id="nav-profile"> <span class="nav-icon">👤</span><span>Profile</span></button>
+  <button class="nav-item"        onclick="switchTab('admin')"   id="nav-admin" style="display:none;"> <span class="nav-icon">⚙️</span><span>Admin</span></button>
 </div>
 
 <script src="script.js"></script>

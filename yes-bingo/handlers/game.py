@@ -293,18 +293,6 @@ async def run_game(game_id: str, context: ContextTypes.DEFAULT_TYPE) -> None:
             "remaining": 75 - len(called),
         })
 
-        players = db.get_game_players(game_id)
-        active_players = [p for p in players if not p["is_eliminated"]]
-        for p in active_players:
-            try:
-                await context.bot.send_message(
-                    p["user_id"],
-                    f"📢 *{game_id}* — `{number}` ({len(called)}/75)",
-                    parse_mode="Markdown"
-                )
-            except Exception:
-                pass
-
         await asyncio.sleep(config.CALL_INTERVAL)
 
     game = db.get_game(game_id)
@@ -403,7 +391,7 @@ async def claim_bingo_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         called = game["called_numbers"]
         has_bingo = any(
-            check_bingo([[b[c * 5 + r] for r in range(5)] for c in range(5)], called)
+            check_bingo([[b[r * 5 + c] for r in range(5)] for c in range(5)], called)
             for b in [player["main_board"]] + player["extra_boards"]
         )
 

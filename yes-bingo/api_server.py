@@ -127,6 +127,14 @@ async def api_game_join(request: web.Request) -> web.Response:
     user_id = int(user_id_str)
     stake = float(stake)
     is_demo = stake == 0.0
+    # User-selected board number (1-100); fallback to random if absent/invalid
+    raw_board_num = body.get("board_number")
+    try:
+        chosen_board_number = int(raw_board_num) if raw_board_num is not None else None
+        if chosen_board_number is not None and not (1 <= chosen_board_number <= 200):
+            chosen_board_number = None
+    except (ValueError, TypeError):
+        chosen_board_number = None
 
     user = db.get_user(user_id)
     if not user:
@@ -169,9 +177,9 @@ async def api_game_join(request: web.Request) -> web.Response:
             game_id = generate_game_id()
         db.create_game(game_id, stake)
 
-    # Generate board
+    # Generate board — use user-selected number if provided, else random
     board = generate_bingo_board()
-    board_number = get_board_number()
+    board_number = chosen_board_number if chosen_board_number is not None else get_board_number()
     flat_board = flatten_board(board)
 
     # Deduct stake
@@ -266,7 +274,8 @@ async def api_claim_bingo(request: web.Request) -> web.Response:
     boards = [player["main_board"]] + player["extra_boards"]
     has_bingo = False
     for flat in boards:
-        board_2d = [[flat[c * 5 + r] for r in range(5)] for c in range(5)]
+        # flat[row*5+col] = board[col][row]; reconstruct board[col][row] = flat[row*5+col]
+        board_2d = [[flat[r * 5 + c] for r in range(5)] for c in range(5)]
         if check_bingo(board_2d, called):
             has_bingo = True
             break
