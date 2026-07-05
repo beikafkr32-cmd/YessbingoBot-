@@ -2,10 +2,12 @@
 Async HTTP + REST API server for YES BINGO (internal, port 8082).
 This version calls the async database wrappers and uses the centralized
 claim handling in handlers.game when available.
+Adapted for Replit: bind to 0.0.0.0 and use PORT env var when present.
 """
 import asyncio
 import json
 import logging
+import os
 from aiohttp import web
 import database as db
 import config
@@ -331,7 +333,8 @@ async def start_server(port: int) -> tuple:
         pass
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
-    site = web.TCPSite(runner, "127.0.0.1", port)
-    await site.start()
-    logger.info(f"REST API server running on 127.0.0.1:{port}")
-    return runner, site
+-    site = web.TCPSite(runner, "127.0.0.1", port)
++    site = web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", port)))
+     await site.start()
+     logger.info(f"REST API server running on 127.0.0.1:{port}")
+     return runner, site
